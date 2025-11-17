@@ -1,0 +1,47 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout
+    xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="vertical"
+    android:padding="16dp"
+    tools:context=".ui.screen.MainActivity">
+
+    <TextView
+        android:id="@+id/tvTitle"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="ホール受付 (伝票発行)"
+        android:textSize="20sp"
+        android:textStyle="bold"
+        android:layout_marginBottom="16dp" />
+
+    <TextView
+        android:id="@+id/tvMenuBookLabel"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="メニューブックを選択:" />
+
+    <Spinner
+        android:id="@+id/spinnerMenuBooks"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginBottom="16dp" />
+
+    <Button
+        android:id="@+id/btnStartOrder"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="伝票発行・受付開始 (Table 101, 2名)" />
+
+    <TextView
+        android:id="@+id/tvMessage"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="24dp"
+        android:textColor="@android:color/holo_green_dark"
+        android:textSize="16sp"
+        tools:text="APIからのメッセージが表示されます" />
+
+</LinearLayout>
