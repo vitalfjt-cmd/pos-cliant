@@ -22,13 +22,18 @@ import androidx.compose.ui.window.Dialog
 import com.pos.client.data.model.Floor
 import com.pos.client.data.model.TableStatus
 import com.pos.client.viewmodel.TableListViewModel
+import com.pos.client.data.model.MenuBook // 追加
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun TableListScreen(
     viewModel: TableListViewModel,
-    onTableClicked: (TableStatus, Int) -> Unit
+    // ★修正: bookId も渡せるように変更
+    onTableClicked: (TableStatus, Int, Int) -> Unit // table, count, bookId
+//    onTableClicked: (TableStatus, Int) -> Unit
 ) {
+    // ... (既存のState取得)
+    val menuBooks by viewModel.menuBooks.collectAsState() // ★追加
     val floors by viewModel.floors.collectAsState()
     val currentFloorId by viewModel.selectedFloorId.collectAsState()
     val tables by viewModel.currentFloorTables.collectAsState()
@@ -62,16 +67,31 @@ fun TableListScreen(
                         Text("データをロード中...", modifier = Modifier.padding(top = 70.dp))
                     }
                 } else {
+                    // ★修正: テーブルクリック時の処理
                     TableGrid(
                         tables = tables,
                         onTableClicked = { table ->
                             if (table.isOccupied) {
-                                onTableClicked(table, 0)
+//                                // 使用中の場合は bookId は不要（0などでOK）
+//                                onTableClicked(table, 0, 0)
+                                // ★★★ 修正箇所: ここでサーバーから来た bookId を渡す ★★★
+                                // bookId が null の場合は安全策として 1 (通常) を渡す
+                                onTableClicked(table, 0, table.bookId ?: 1)
                             } else {
                                 showEntranceDialog = table
                             }
                         }
                     )
+//                    TableGrid(
+//                        tables = tables,
+//                        onTableClicked = { table ->
+//                            if (table.isOccupied) {
+//                                onTableClicked(table, 0)
+//                            } else {
+//                                showEntranceDialog = table
+//                            }
+//                        }
+//                    )
                 }
             }
         }
@@ -80,13 +100,25 @@ fun TableListScreen(
     showEntranceDialog?.let { table ->
         EntranceDialog(
             tableNumber = table.tableId.toString(),
+            menuBooks = menuBooks, // ★追加: 一覧を渡す
             onDismiss = { showEntranceDialog = null },
-            onConfirm = { count ->
+            onConfirm = { count, bookId -> // ★修正: bookIdも受け取る
                 showEntranceDialog = null
-                onTableClicked(table, count)
+                onTableClicked(table, count, bookId)
             }
         )
     }
+
+//    showEntranceDialog?.let { table ->
+//        EntranceDialog(
+//            tableNumber = table.tableId.toString(),
+//            onDismiss = { showEntranceDialog = null },
+//            onConfirm = { count ->
+//                showEntranceDialog = null
+//                onTableClicked(table, count)
+//            }
+//        )
+//    }
 }
 
 // --- UI Components ---
@@ -94,56 +126,115 @@ fun TableListScreen(
 @Composable
 fun EntranceDialog(
     tableNumber: String,
+    menuBooks: List<MenuBook>, // ★追加
     onDismiss: () -> Unit,
-    onConfirm: (Int) -> Unit
+//    onConfirm: (Int) -> Unit // count, bookId
+    // ★★★ 修正箇所: (Int) -> Unit を (Int, Int) -> Unit に変更 ★★★
+    onConfirm: (Int, Int) -> Unit
 ) {
     var count by remember { mutableIntStateOf(2) }
+    // ★追加: 選択されたブックID (初期値はリストの先頭、なければ1)
+    var selectedBookId by remember { mutableIntStateOf(menuBooks.firstOrNull()?.bookId ?: 1) }
 
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text("入店受付 (Table $tableNumber)") },
         text = {
             Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.fillMaxWidth()) {
-                Text("ご来店人数を入力してください", style = MaterialTheme.typography.bodyMedium)
-                Spacer(modifier = Modifier.height(16.dp))
-
+                // --- 人数選択 (既存) ---
+                Text("ご来店人数", style = MaterialTheme.typography.titleSmall)
+                Spacer(modifier = Modifier.height(8.dp))
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    IconButton(
-                        onClick = { if (count > 1) count-- },
-                        modifier = Modifier.background(Color.LightGray, CircleShape)
-                    ) {
-                        // ★修正: Icon(Remove) の代わりに Text("-") を使用
+                    IconButton(onClick = { if (count > 1) count-- }, modifier = Modifier.background(Color.LightGray, CircleShape)) {
                         Text("-", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
                     }
-
-                    Text(
-                        text = "$count 名",
-                        style = MaterialTheme.typography.headlineMedium,
-                        fontWeight = FontWeight.Bold,
-                        modifier = Modifier.padding(horizontal = 24.dp)
-                    )
-
-                    IconButton(
-                        onClick = { count++ },
-                        modifier = Modifier.background(Color.LightGray, CircleShape)
-                    ) {
+                    Text(text = "$count 名", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold, modifier = Modifier.padding(horizontal = 24.dp))
+                    IconButton(onClick = { count++ }, modifier = Modifier.background(Color.LightGray, CircleShape)) {
                         Icon(Icons.Default.Add, contentDescription = "増やす")
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(24.dp))
+                Divider()
+                Spacer(modifier = Modifier.height(16.dp))
+
+                // --- ★追加: メニューブック選択 ---
+                Text("メニュー種別", style = MaterialTheme.typography.titleSmall)
+                Spacer(modifier = Modifier.height(8.dp))
+
+                // 簡易的な選択ボタンリスト
+                menuBooks.forEach { book ->
+                    val isSelected = (book.bookId == selectedBookId)
+                    val color = if (isSelected) MaterialTheme.colorScheme.primary else Color.LightGray
+                    val textColor = if (isSelected) Color.White else Color.Black
+
+                    OutlinedButton(
+                        onClick = { selectedBookId = book.bookId },
+                        modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+                        colors = ButtonDefaults.outlinedButtonColors(containerColor = if (isSelected) color else Color.Transparent),
+                        border = if(isSelected) null else ButtonDefaults.outlinedButtonBorder
+                    ) {
+                        Text(book.bookName, color = textColor, fontWeight = FontWeight.Bold)
                     }
                 }
             }
         },
         confirmButton = {
-            Button(onClick = { onConfirm(count) }) {
+            Button(onClick = { onConfirm(count, selectedBookId) }) { // ★修正
                 Text("案内する")
             }
         },
         dismissButton = {
-            TextButton(onClick = onDismiss) {
-                Text("キャンセル")
-            }
+            TextButton(onClick = onDismiss) { Text("キャンセル") }
         }
     )
 }
+
+//    AlertDialog(
+//        onDismissRequest = onDismiss,
+//        title = { Text("入店受付 (Table $tableNumber)") },
+//        text = {
+//            Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.fillMaxWidth()) {
+//                Text("ご来店人数を入力してください", style = MaterialTheme.typography.bodyMedium)
+//                Spacer(modifier = Modifier.height(16.dp))
+//
+//                Row(verticalAlignment = Alignment.CenterVertically) {
+//                    IconButton(
+//                        onClick = { if (count > 1) count-- },
+//                        modifier = Modifier.background(Color.LightGray, CircleShape)
+//                    ) {
+//                        // ★修正: Icon(Remove) の代わりに Text("-") を使用
+//                        Text("-", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
+//                    }
+//
+//                    Text(
+//                        text = "$count 名",
+//                        style = MaterialTheme.typography.headlineMedium,
+//                        fontWeight = FontWeight.Bold,
+//                        modifier = Modifier.padding(horizontal = 24.dp)
+//                    )
+//
+//                    IconButton(
+//                        onClick = { count++ },
+//                        modifier = Modifier.background(Color.LightGray, CircleShape)
+//                    ) {
+//                        Icon(Icons.Default.Add, contentDescription = "増やす")
+//                    }
+//                }
+//            }
+//        },
+//        confirmButton = {
+//            Button(onClick = { onConfirm(count) }) {
+//                Text("案内する")
+//            }
+//        },
+//        dismissButton = {
+//            TextButton(onClick = onDismiss) {
+//                Text("キャンセル")
+//            }
+//        }
+//    )
+//}
 
 @Composable
 fun FloorTabRow(

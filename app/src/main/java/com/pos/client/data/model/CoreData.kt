@@ -15,7 +15,8 @@ data class TableStatus(
     @SerializedName("floor_id") val floorId: Int,
     @SerializedName("status") val status: String,
     @SerializedName("capacity") val capacity: Int,
-    @SerializedName("order_id") val orderId: Int? // ★追加: サーバーから受け取る注文ID
+    @SerializedName("order_id") val orderId: Int?,// ★追加: サーバーから受け取る注文ID
+    @SerializedName("book_id") val bookId: Int? // ★★★ 追加: サーバーから受け取るBookID ★★★
 ) {
     val isOccupied: Boolean get() = status == "OCCUPIED"
 }
@@ -191,6 +192,14 @@ class TableRepository(private val apiService: ApiService) {
             val response = apiService.getFloors()
             if (response.isSuccessful) response.body() ?: emptyList() else MockData.mockFloors
         } catch (e: Exception) { MockData.mockFloors }
+    }
+
+    // data/model/CoreData.kt 内の TableRepository クラスに追加
+    suspend fun getMenuBooks(): List<MenuBook> {
+        return try {
+            val response = apiService.getMenuBooks()
+            if (response.isSuccessful) response.body() ?: emptyList() else emptyList()
+        } catch (e: Exception) { emptyList() }
     }
 }
 

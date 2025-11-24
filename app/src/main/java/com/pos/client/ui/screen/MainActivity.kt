@@ -87,10 +87,16 @@ class MainActivity : ComponentActivity() {
                                 TableListScreen(
                                     viewModel = tableListViewModel,
                                     // ★修正: 人数(count)も受け取る
-                                    onTableClicked = { table, count ->
+//                                    onTableClicked = { table, count ->
+                                    onTableClicked = { table, count, bookId -> // ★修正: 引数3つ受け取る
                                         currentScreen = Screen.Order(
                                             tableId = table.tableId,
-                                            bookId = 1,
+                                            // ★修正: 選択された bookId を渡す (使用中テーブルなら既存IDを使うロジックにする場合は注意)
+                                            // 既存コードでは既存テーブルクリック時は count=0, bookId=0 が返る想定なので、
+                                            // 新規入店の時だけ bookId をセットし、既存注文再開のときは bookId=1 (または既存の値) でOK
+                                            // ★修正: 受け取った bookId を使用する (0の場合は1とする)
+                                            bookId = if (bookId > 0) bookId else 1,
+//                                            bookId = 1,
                                             existingOrderId = table.orderId,
                                             customerCount = count // ★追加
                                         )

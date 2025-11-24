@@ -5,6 +5,7 @@ import androidx.lifecycle.viewModelScope
 import com.pos.client.data.model.Floor
 import com.pos.client.data.model.TableRepository
 import com.pos.client.data.model.TableStatus
+import com.pos.client.data.model.MenuBook // ★★★ これを追加してください ★★★
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
 
@@ -39,6 +40,36 @@ class TableListViewModel(
             started = SharingStarted.WhileSubscribed(5000),
             initialValue = emptyList()
         )
+
+    // ★追加: メニューブック一覧を保持するStateFlow
+    private val _menuBooks = MutableStateFlow<List<MenuBook>>(emptyList())
+    val menuBooks: StateFlow<List<MenuBook>> = _menuBooks.asStateFlow()
+
+    init {
+        viewModelScope.launch {
+            _isLoading.value = true
+            _floors.value = repository.getFloors()
+
+            // ★追加: メニューブック一覧を取得
+            try {
+                // apiServiceはRepositoryの中に隠蔽されていないため、
+                // 厳密にはRepositoryにメソッドを追加すべきですが、
+                // ここでは既存のRepository構造に合わせて修正案を提示します。
+                // TableRepositoryに getMenuBooks() を追加するか、
+                // ここで直接呼ぶ必要がありますが、既存コードを見ると
+                // Repositoryは getFloors 等を持っています。
+                // ここでは TableRepository に getMenuBooks を追加する前提で書きます。
+                _menuBooks.value = repository.getMenuBooks()
+            } catch (e: Exception) {
+                println("メニューブック取得エラー: ${e.message}")
+            }
+
+            if (_floors.value.isNotEmpty()) {
+                _selectedFloorId.value = _floors.value.first().floorId
+            }
+            fetchTableStatuses()
+        }
+    }
 
     // 初期化ブロック
     init {
