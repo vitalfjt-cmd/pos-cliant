@@ -26,6 +26,19 @@ import com.pos.client.data.model.OptionItem
 import com.pos.client.viewmodel.OrderViewModel
 import kotlinx.coroutines.delay
 
+// ★ここに追加：UI専用のデータクラス（MenuItemは既存のものを使うので定義しない）
+data class UiMenuCategory(
+    val id: String,
+    val name: String,
+    val subCategories: List<UiMenuSubCategory>
+)
+
+data class UiMenuSubCategory(
+    val id: String,
+    val name: String,
+    val items: List<MenuItem>
+)
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun OrderScreen(
@@ -35,9 +48,9 @@ fun OrderScreen(
     existingOrderId: Int?,
     customerCount: Int,
     onBackClicked: () -> Unit,
-    // ★追加: 会計ボタン用コールバック
     onAccountingClicked: () -> Unit
 ) {
+    // ViewModelのデータ構造は Map<String, Map<String, List<MenuItem>>> と想定
     val menuStructure by viewModel.menuStructure.collectAsState()
     val errorMessage by viewModel.errorMessage.collectAsState()
     val userMessage by viewModel.userMessage.collectAsState()
@@ -47,13 +60,11 @@ fun OrderScreen(
     val isAccountingCompleted by viewModel.isAccountingCompleted.collectAsState()
 
     val snackbarHostState = remember { SnackbarHostState() }
-    var selectedCategoryIndex by remember { mutableIntStateOf(0) }
 
     // ダイアログフラグ
     var showItemDetailDialog by remember { mutableStateOf<MenuItem?>(null) }
     var showCartDialog by remember { mutableStateOf(false) }
     var showHistoryDialog by remember { mutableStateOf(false) }
-    // var showBillDialog by remember { mutableStateOf(false) } // ★削除: 古いダイアログは不要
 
     LaunchedEffect(tableId) {
         viewModel.initializeOrder(tableId, bookId, existingOrderId, customerCount)
@@ -66,12 +77,11 @@ fun OrderScreen(
         }
     }
 
-    // 会計完了時、少し待ってから戻る
     LaunchedEffect(isAccountingCompleted) {
         if (isAccountingCompleted) {
             delay(1500)
             viewModel.clearAccountingStatus()
-            onBackClicked() // テーブル一覧に戻る
+            onBackClicked()
         }
     }
 
@@ -104,11 +114,9 @@ fun OrderScreen(
                         }
                     }
 
-                    // ★修正: 会計ボタンの処理を変更
                     TextButton(onClick = {
                         viewModel.fetchOrderHistory()
-                        // showBillDialog = true // ★削除
-                        onAccountingClicked() // ★追加: 新しい画面へ遷移
+                        onAccountingClicked()
                     }) {
                         Column(horizontalAlignment = Alignment.CenterHorizontally) {
                             Icon(Icons.Default.Email, contentDescription = null)
@@ -147,35 +155,30 @@ fun OrderScreen(
         content = { paddingValues ->
             Column(modifier = Modifier.padding(paddingValues).fillMaxSize()) {
                 if (menuStructure.isNotEmpty()) {
-                    val majorCategories = menuStructure.keys.toList()
-                    if (selectedCategoryIndex >= majorCategories.size) selectedCategoryIndex = 0
-
-                    ScrollableTabRow(
-                        selectedTabIndex = selectedCategoryIndex,
-                        edgePadding = 16.dp,
-                        indicator = { tabPositions ->
-                            TabRowDefaults.SecondaryIndicator(
-                                Modifier.tabIndicatorOffset(
-                                    tabPositions[selectedCategoryIndex]
-                                )
-                            )
-                        }
-                    ) {
-                        majorCategories.forEachIndexed { index, category ->
-                            Tab(
-                                selected = selectedCategoryIndex == index,
-                                onClick = { selectedCategoryIndex = index },
-                                text = { Text(category) }
+                    // ★ここが修正ポイント: Mapデータを新しいUI用のListデータに変換
+                    // Map<Major, Map<Minor, List<MenuItem>>> -> List<UiMenuCategory>
+                    val uiCategories = remember(menuStructure) {
+                        menuStructure.entries.map { (majorName, minorMap) ->
+                            UiMenuCategory(
+                                id = majorName,
+                                name = majorName,
+                                subCategories = minorMap.entries.map { (minorName, items) ->
+                                    UiMenuSubCategory(
+                                        id = minorName,
+                                        name = minorName,
+                                        items = items
+                                    )
+                                }
                             )
                         }
                     }
 
-                    val currentMajor = majorCategories[selectedCategoryIndex]
-                    val currentMinorMap = menuStructure[currentMajor] ?: emptyMap()
+                    // ★修正ポイント: 古いコードを削除し、新しい2階層タブコンポーネントを呼び出す
+                    OrderScreenTabs(
+                        categories = uiCategories,
+                        onItemClick = { showItemDetailDialog = it }
+                    )
 
-                    MenuContent(
-                        minorMap = currentMinorMap,
-                        onMenuClicked = { showItemDetailDialog = it })
                 } else if (errorMessage != null) {
                     Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                         Text(errorMessage ?: "Error", color = MaterialTheme.colorScheme.error)
@@ -190,8 +193,7 @@ fun OrderScreen(
         }
     )
 
-    // --- Dialogs ---
-
+    // --- Dialogs (変更なし) ---
     showItemDetailDialog?.let { menuItem ->
         ItemDetailDialog(
             menuItem = menuItem,
@@ -214,27 +216,87 @@ fun OrderScreen(
     if (showHistoryDialog) {
         HistoryListDialog(orderHistory, viewModel) { showHistoryDialog = false }
     }
-
-    // ★削除: BillDialog はもう使わないので削除
-    // if (showBillDialog) { ... }
 }
 
-// --- Components (以下変更なし) ---
+// --- Components ---
 
+// ★追加した新しい2階層タブコンポーネント
 @Composable
-fun MenuContent(minorMap: Map<String, List<MenuItem>>, onMenuClicked: (MenuItem) -> Unit) {
-    LazyColumn(modifier = Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 80.dp)) {
-        minorMap.forEach { (minor, items) ->
-            item {
-                Text(minor, style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.secondary, modifier = Modifier.padding(16.dp))
+fun OrderScreenTabs(
+    categories: List<UiMenuCategory>,
+    onItemClick: (MenuItem) -> Unit
+) {
+    // 選択状態の管理
+    var selectedParentIndex by remember { mutableIntStateOf(0) }
+    var selectedChildIndex by remember { mutableIntStateOf(0) }
+
+    // インデックスの範囲チェック（データ更新時などに範囲外になるのを防ぐ）
+    val safeParentIndex = selectedParentIndex.coerceIn(0, (categories.size - 1).coerceAtLeast(0))
+    val currentParentCategory = categories.getOrNull(safeParentIndex)
+
+    val currentSubCategories = currentParentCategory?.subCategories ?: emptyList()
+
+    // 子インデックスもリセット処理が入るが、描画時の範囲チェックも行う
+    val safeChildIndex = selectedChildIndex.coerceIn(0, (currentSubCategories.size - 1).coerceAtLeast(0))
+
+    // 【重要】親タブが切り替わったら、子タブの選択を「一番左(0)」に戻す
+    LaunchedEffect(safeParentIndex) {
+        selectedChildIndex = 0
+    }
+
+    Column(modifier = Modifier.fillMaxSize()) {
+
+        // --- 1段目: 大分類 (親タブ) ---
+        ScrollableTabRow(
+            selectedTabIndex = safeParentIndex,
+            edgePadding = 16.dp,
+            containerColor = MaterialTheme.colorScheme.primaryContainer,
+            contentColor = MaterialTheme.colorScheme.onPrimaryContainer
+        ) {
+            categories.forEachIndexed { index, category ->
+                Tab(
+                    selected = safeParentIndex == index,
+                    onClick = { selectedParentIndex = index },
+                    text = { Text(text = category.name, style = MaterialTheme.typography.titleMedium) }
+                )
             }
-            items(items) { item ->
-                MenuItemRow(item, onMenuClicked)
+        }
+
+        // --- 2段目: 小分類 (子タブ) ---
+        if (currentSubCategories.isNotEmpty()) {
+            ScrollableTabRow(
+                selectedTabIndex = safeChildIndex,
+                edgePadding = 16.dp,
+                containerColor = MaterialTheme.colorScheme.surface
+            ) {
+                currentSubCategories.forEachIndexed { index, subCategory ->
+                    Tab(
+                        selected = safeChildIndex == index,
+                        onClick = { selectedChildIndex = index },
+                        text = { Text(text = subCategory.name) }
+                    )
+                }
             }
+        }
+
+        // --- 3段目: 商品リスト (コンテンツ) ---
+        val currentItems = currentSubCategories.getOrNull(safeChildIndex)?.items ?: emptyList()
+
+        LazyColumn(
+            contentPadding = PaddingValues(16.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+            modifier = Modifier.fillMaxSize()
+        ) {
+            items(currentItems) { item ->
+                MenuItemRow(menuItem = item, onClick = onItemClick)
+            }
+            // 下部のスペース（FABやボトムバー用）
+            item { Spacer(modifier = Modifier.height(80.dp)) }
         }
     }
 }
 
+// 既存のコンポーネント (MenuItemRowなど) はそのまま利用
 @Composable
 fun MenuItemRow(menuItem: MenuItem, onClick: (MenuItem) -> Unit) {
     Card(
@@ -247,7 +309,6 @@ fun MenuItemRow(menuItem: MenuItem, onClick: (MenuItem) -> Unit) {
         }
     }
 }
-
 @Composable
 fun ItemDetailDialog(
     menuItem: MenuItem,
