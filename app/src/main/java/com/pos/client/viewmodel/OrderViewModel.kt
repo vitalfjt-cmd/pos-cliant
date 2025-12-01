@@ -45,10 +45,7 @@ class OrderViewModel(
     fun clearUserMessage() { _userMessage.value = null }
     fun clearAccountingStatus() { _isAccountingCompleted.value = false }
 
-    // ★修正: customerCount (人数) を引数に追加
     fun initializeOrder(tableId: Int, bookId: Int, existingOrderId: Int?, customerCount: Int) {
-        // 状態リセット（テーブルが変わった場合のみ、または強制的に）
-        // 今回はシンプルに毎回リセットして整合性を保つ
         _currentTableId = tableId
         _currentOrderId.value = null
         _cartItems.value = emptyList()
@@ -57,13 +54,9 @@ class OrderViewModel(
         loadMenuStructure(bookId)
 
         if (existingOrderId != null && existingOrderId > 0) {
-            // 既存の注文がある場合（再開）
             _currentOrderId.value = existingOrderId
-            println("Resuming Order ID: $existingOrderId")
             fetchOrderHistory()
         } else {
-            // 新規注文の場合（入店）
-            // ★修正: 人数を渡して注文開始
             startOrder(tableId, bookId, customerCount)
         }
     }
@@ -92,17 +85,13 @@ class OrderViewModel(
         }
     }
 
-    // ★修正: customerCountを受け取るように変更
     private fun startOrder(tableId: Int, bookId: Int, customerCount: Int) {
         viewModelScope.launch {
             try {
-                // Requestに人数をセットして送信
                 val request = OrderHeaderRequest(tableId, bookId, customerCount)
                 val response = apiService.startOrder(request)
-
                 if (response.isSuccessful) {
                     _currentOrderId.value = response.body()?.orderId
-                    println("New Order Started: ${response.body()?.orderId}")
                 } else {
                     _errorMessage.value = "注文開始失敗"
                 }
@@ -156,18 +145,62 @@ class OrderViewModel(
         }
     }
 
-    fun fetchOrderHistory() {
-        val orderId = _currentOrderId.value ?: return
+    // ★修正: 引数でIDを指定できるように変更
+    fun fetchOrderHistory(targetOrderId: Int? = null) {
+        val orderId = targetOrderId ?: _currentOrderId.value
+        if (orderId == null) return
+
         viewModelScope.launch {
             try {
                 val res = apiService.getAccountingDetails(orderId)
                 if (res.isSuccessful) {
                     _orderHistory.value = res.body()
+                    if (targetOrderId != null) {
+                        _currentOrderId.value = targetOrderId
+                    }
+                } else {
+                    _errorMessage.value = "伝票情報が見つかりません"
+                    _orderHistory.value = null
                 }
             } catch (e: Exception) {
-                _errorMessage.value = "履歴取得失敗"
+                _errorMessage.value = "履歴取得失敗: ${e.message}"
             }
         }
+    }
+
+    // ★追加: テーブル番号から伝票を検索
+    fun searchOrderByTable(tableId: Int) {
+        viewModelScope.launch {
+            try {
+                val response = apiService.getTableStatuses()
+                if (response.isSuccessful) {
+                    val tables = response.body() ?: emptyList()
+                    val targetTable = tables.find { it.tableId == tableId }
+
+                    if (targetTable != null) {
+                        if (targetTable.orderId != null && targetTable.orderId > 0) {
+                            _userMessage.value = "テーブル $tableId の伝票を呼び出します"
+                            fetchOrderHistory(targetTable.orderId)
+                        } else {
+                            _userMessage.value = "テーブル $tableId は空席または伝票がありません"
+                            _orderHistory.value = null
+                        }
+                    } else {
+                        _userMessage.value = "テーブル $tableId が存在しません"
+                    }
+                } else {
+                    _errorMessage.value = "テーブル情報の取得に失敗しました"
+                }
+            } catch (e: Exception) {
+                _errorMessage.value = "テーブル検索エラー: ${e.message}"
+            }
+        }
+    }
+
+    // ★追加: 伝票番号から検索
+    fun searchOrderBySlip(orderId: Int) {
+        _userMessage.value = "伝票No $orderId を検索中..."
+        fetchOrderHistory(orderId)
     }
 
     fun completeAccounting(paymentId: Int, amount: Int) {
@@ -185,7 +218,6 @@ class OrderViewModel(
                 if (response.isSuccessful) {
                     _userMessage.value = "会計が完了しました"
                     _isAccountingCompleted.value = true
-
                     _currentOrderId.value = null
                     _cartItems.value = emptyList()
                     _orderHistory.value = null
@@ -198,8 +230,11 @@ class OrderViewModel(
         }
     }
 
+    fun showUserMessage(message: String) {
+        _userMessage.value = message
+    }
+
     fun getMenuName(menuId: Int): String = _menuMap[menuId]?.menuName ?: "商品ID:$menuId"
     fun getMenuPrice(menuId: Int): Int = _menuMap[menuId]?.price ?: 0
-
     fun addOrderItem(menuItem: MenuItem) { addToCart(menuItem, 1, emptyList()) }
 }

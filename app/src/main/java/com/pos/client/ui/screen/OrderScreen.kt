@@ -24,6 +24,7 @@ import com.pos.client.data.model.CartItem
 import com.pos.client.data.model.AccountingResponse
 import com.pos.client.data.model.OptionItem
 import com.pos.client.viewmodel.OrderViewModel
+import kotlinx.coroutines.delay
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -32,8 +33,10 @@ fun OrderScreen(
     tableId: Int,
     bookId: Int,
     existingOrderId: Int?,
-    customerCount: Int, // ★追加: 人数を受け取る
-    onBackClicked: () -> Unit
+    customerCount: Int,
+    onBackClicked: () -> Unit,
+    // ★追加: 会計ボタン用コールバック
+    onAccountingClicked: () -> Unit
 ) {
     val menuStructure by viewModel.menuStructure.collectAsState()
     val errorMessage by viewModel.errorMessage.collectAsState()
@@ -41,6 +44,7 @@ fun OrderScreen(
     val cartItems by viewModel.cartItems.collectAsState()
     val orderHistory by viewModel.orderHistory.collectAsState()
     val options by viewModel.options.collectAsState()
+    val isAccountingCompleted by viewModel.isAccountingCompleted.collectAsState()
 
     val snackbarHostState = remember { SnackbarHostState() }
     var selectedCategoryIndex by remember { mutableIntStateOf(0) }
@@ -49,14 +53,10 @@ fun OrderScreen(
     var showItemDetailDialog by remember { mutableStateOf<MenuItem?>(null) }
     var showCartDialog by remember { mutableStateOf(false) }
     var showHistoryDialog by remember { mutableStateOf(false) }
-    var showBillDialog by remember { mutableStateOf(false) }
-    // ... (既存の状態取得) ...
-    val isAccountingCompleted by viewModel.isAccountingCompleted.collectAsState() // ★追加
+    // var showBillDialog by remember { mutableStateOf(false) } // ★削除: 古いダイアログは不要
 
     LaunchedEffect(tableId) {
-        // ★修正: 人数もViewModelに渡す
         viewModel.initializeOrder(tableId, bookId, existingOrderId, customerCount)
-//        viewModel.initializeOrder(tableId, bookId, existingOrderId)
     }
 
     LaunchedEffect(userMessage) {
@@ -66,11 +66,10 @@ fun OrderScreen(
         }
     }
 
-    // ★追加: 会計完了を監視して画面を戻す
+    // 会計完了時、少し待ってから戻る
     LaunchedEffect(isAccountingCompleted) {
         if (isAccountingCompleted) {
-            // 少し待ってから戻るとメッセージが読める（お好みで）
-            kotlinx.coroutines.delay(1500)
+            delay(1500)
             viewModel.clearAccountingStatus()
             onBackClicked() // テーブル一覧に戻る
         }
@@ -104,16 +103,19 @@ fun OrderScreen(
                             Text("注文履歴")
                         }
                     }
+
+                    // ★修正: 会計ボタンの処理を変更
                     TextButton(onClick = {
                         viewModel.fetchOrderHistory()
-                        showBillDialog = true
+                        // showBillDialog = true // ★削除
+                        onAccountingClicked() // ★追加: 新しい画面へ遷移
                     }) {
                         Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                            // Receiptアイコンの代用としてEmailを使用
                             Icon(Icons.Default.Email, contentDescription = null)
                             Text("お会計")
                         }
                     }
+
                     TextButton(onClick = { }) {
                         Column(horizontalAlignment = Alignment.CenterHorizontally) {
                             Icon(Icons.Default.Notifications, contentDescription = null)
@@ -213,22 +215,11 @@ fun OrderScreen(
         HistoryListDialog(orderHistory, viewModel) { showHistoryDialog = false }
     }
 
-//    if (showBillDialog) {
-//        BillDialog(orderHistory) { showBillDialog = false }
-//    }
-    if (showBillDialog) {
-        BillDialog(
-            orderHistory = orderHistory,
-            onPay = { paymentId, amount ->
-                viewModel.completeAccounting(paymentId, amount)
-                showBillDialog = false // ダイアログは閉じる（その後画面遷移）
-            },
-            onDismiss = { showBillDialog = false }
-        )
-    }
+    // ★削除: BillDialog はもう使わないので削除
+    // if (showBillDialog) { ... }
 }
 
-// --- Components ---
+// --- Components (以下変更なし) ---
 
 @Composable
 fun MenuContent(minorMap: Map<String, List<MenuItem>>, onMenuClicked: (MenuItem) -> Unit) {
@@ -307,10 +298,9 @@ fun ItemDetailDialog(
                             .padding(vertical = 4.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        // ★修正: Iconの代わりにCheckboxを使用（エラー解消）
                         Checkbox(
                             checked = isSelected,
-                            onCheckedChange = null // Rowのclickableで制御するためnull
+                            onCheckedChange = null
                         )
                         Spacer(modifier = Modifier.width(8.dp))
                         Text(option.optionName)
@@ -422,77 +412,3 @@ fun HistoryListDialog(history: AccountingResponse?, viewModel: OrderViewModel, o
         }
     }
 }
-
-// ★修正: 支払いボタンを追加した会計ダイアログ
-@Composable
-fun BillDialog(
-    orderHistory: AccountingResponse?,
-    onPay: (Int, Int) -> Unit, // paymentId, amount
-    onDismiss: () -> Unit
-) {
-    Dialog(onDismissRequest = onDismiss) {
-        Card(modifier = Modifier.fillMaxWidth()) {
-            Column(modifier = Modifier.padding(24.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-                Text("お会計", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
-                Spacer(modifier = Modifier.height(32.dp))
-
-                val total = orderHistory?.header?.totalAmount ?: 0
-                Text("合計金額", style = MaterialTheme.typography.titleMedium)
-                Text("¥$total", style = MaterialTheme.typography.displayMedium, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
-
-                Spacer(modifier = Modifier.height(32.dp))
-
-                if (total > 0) {
-                    Text("支払い方法を選択", style = MaterialTheme.typography.titleSmall, color = Color.Gray)
-                    Spacer(modifier = Modifier.height(8.dp))
-
-                    // 現金払い (PaymentID: 1)
-                    Button(
-                        onClick = { onPay(1, total) },
-                        modifier = Modifier.fillMaxWidth(),
-                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF4CAF50))
-                    ) {
-                        Icon(Icons.Default.Email, contentDescription = null) // 適当なアイコン（現金）
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text("現金で支払う")
-                    }
-                    Spacer(modifier = Modifier.height(8.dp))
-
-                    // カード払い (PaymentID: 2)
-                    Button(
-                        onClick = { onPay(2, total) },
-                        modifier = Modifier.fillMaxWidth(),
-                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF2196F3))
-                    ) {
-                        Icon(Icons.Default.ShoppingCart, contentDescription = null) // 適当なアイコン（カード）
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text("カードで支払う")
-                    }
-                } else {
-                    Text("※請求額が0円のため会計できません", color = Color.Red)
-                }
-
-                Spacer(modifier = Modifier.height(16.dp))
-                TextButton(onClick = onDismiss, modifier = Modifier.fillMaxWidth()) { Text("閉じる") }
-            }
-        }
-    }
-}
-//@Composable
-//fun BillDialog(history: AccountingResponse?, onDismiss: () -> Unit) {
-//    Dialog(onDismissRequest = onDismiss) {
-//        Card(modifier = Modifier.fillMaxWidth()) {
-//            Column(modifier = Modifier.padding(24.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-//                Text("お会計", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
-//                Spacer(modifier = Modifier.height(32.dp))
-//
-//                val total = history?.header?.totalAmount ?: 0
-//                Text("合計金額", style = MaterialTheme.typography.titleMedium)
-//                Text("¥$total", style = MaterialTheme.typography.displayMedium, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
-//
-//                Spacer(modifier = Modifier.height(32.dp))
-//                Button(onClick = onDismiss, modifier = Modifier.fillMaxWidth()) { Text("閉じる") }
-//            }
-//        }
-//    }
-//}
