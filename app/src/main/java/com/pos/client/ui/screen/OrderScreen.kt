@@ -25,6 +25,7 @@ import com.pos.client.data.model.AccountingResponse
 import com.pos.client.data.model.OptionItem
 import com.pos.client.viewmodel.OrderViewModel
 import kotlinx.coroutines.delay
+import androidx.compose.ui.draw.rotate
 
 // ★ここに追加：UI専用のデータクラス（MenuItemは既存のものを使うので定義しない）
 data class UiMenuCategory(
@@ -157,6 +158,7 @@ fun OrderScreen(
                 if (menuStructure.isNotEmpty()) {
                     // ★ここが修正ポイント: Mapデータを新しいUI用のListデータに変換
                     // Map<Major, Map<Minor, List<MenuItem>>> -> List<UiMenuCategory>
+                    // テストのため一時的に変更
                     val uiCategories = remember(menuStructure) {
                         menuStructure.entries.map { (majorName, minorMap) ->
                             UiMenuCategory(
@@ -172,7 +174,31 @@ fun OrderScreen(
                             )
                         }
                     }
-
+                    // テストのため、一時変更　スタート
+//                    val uiCategories = remember(menuStructure) {
+//                        menuStructure.entries.map { (majorName, minorMap) ->
+//                            UiMenuCategory(
+//                                id = majorName,
+//                                name = majorName,
+//                                subCategories = minorMap.entries.map { (minorName, items) ->
+//                                    UiMenuSubCategory(
+//                                        id = minorName,
+//                                        name = minorName,
+//                                        // ★ここで一時的にデータを加工
+//                                        items = items.map { item ->
+//                                            // テスト用: 価格が600円以上の商品を「売り切れ」にしてみる
+//                                            if (item.price >= 600) {
+//                                                item.copy(isSoldOut = true)
+//                                            } else {
+//                                                item
+//                                            }
+//                                        }
+//                                    )
+//                                }
+//                            )
+//                        }
+//                    }
+                    //　変更箇所　おわり
                     // ★修正ポイント: 古いコードを削除し、新しい2階層タブコンポーネントを呼び出す
                     OrderScreenTabs(
                         categories = uiCategories,
@@ -299,16 +325,71 @@ fun OrderScreenTabs(
 // 既存のコンポーネント (MenuItemRowなど) はそのまま利用
 @Composable
 fun MenuItemRow(menuItem: MenuItem, onClick: (MenuItem) -> Unit) {
+    // 売り切れかどうかで見た目と動作を変える
+    val cardColor = if (menuItem.isSoldOut) Color.LightGray.copy(alpha = 0.5f) else MaterialTheme.colorScheme.surface
+    val contentColor = if (menuItem.isSoldOut) Color.Gray else MaterialTheme.colorScheme.onSurface
+
+    // カード UI
     Card(
-        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp).clickable { onClick(menuItem) },
-        elevation = CardDefaults.cardElevation(2.dp)
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 4.dp)
+            .height(IntrinsicSize.Min) // 高さを中身に合わせつつ固定
+            .clickable(enabled = !menuItem.isSoldOut) { onClick(menuItem) }, // 売り切れならクリック無効
+        elevation = CardDefaults.cardElevation(if (menuItem.isSoldOut) 0.dp else 2.dp),
+        colors = CardDefaults.cardColors(containerColor = cardColor)
     ) {
-        Row(modifier = Modifier.padding(16.dp).fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-            Text(menuItem.menuName, fontWeight = FontWeight.Bold)
-            Text("¥${menuItem.price}", color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold)
+        Box(contentAlignment = Alignment.Center) {
+            // 通常のコンテンツ
+            Row(
+                modifier = Modifier
+                    .padding(16.dp)
+                    .fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = menuItem.menuName,
+                    fontWeight = FontWeight.Bold,
+                    color = contentColor,
+                    style = if (menuItem.isSoldOut) MaterialTheme.typography.bodyLarge.copy(textDecoration = androidx.compose.ui.text.style.TextDecoration.LineThrough) else MaterialTheme.typography.bodyLarge
+                )
+
+                Text(
+                    text = "¥${menuItem.price}",
+                    color = if (menuItem.isSoldOut) contentColor else MaterialTheme.colorScheme.primary,
+                    fontWeight = FontWeight.Bold
+                )
+            }
+
+            // 売り切れ時のオーバーレイ表示（スタンプ風）
+            if (menuItem.isSoldOut) {
+                Text(
+                    text = "SOLD OUT",
+                    color = Color.Red.copy(alpha = 0.8f),
+                    fontWeight = FontWeight.ExtraBold,
+                    style = MaterialTheme.typography.headlineMedium,
+                    modifier = Modifier
+                        .background(Color.White.copy(alpha = 0.7f), shape = MaterialTheme.shapes.small)
+                        .padding(horizontal = 8.dp, vertical = 4.dp)
+                        .rotate(-15f) // 少し斜めにする
+                )
+            }
         }
     }
 }
+//@Composable
+//fun MenuItemRow(menuItem: MenuItem, onClick: (MenuItem) -> Unit) {
+//    Card(
+//        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp).clickable { onClick(menuItem) },
+//        elevation = CardDefaults.cardElevation(2.dp)
+//    ) {
+//        Row(modifier = Modifier.padding(16.dp).fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+//            Text(menuItem.menuName, fontWeight = FontWeight.Bold)
+//            Text("¥${menuItem.price}", color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold)
+//        }
+//    }
+//}
 @Composable
 fun ItemDetailDialog(
     menuItem: MenuItem,

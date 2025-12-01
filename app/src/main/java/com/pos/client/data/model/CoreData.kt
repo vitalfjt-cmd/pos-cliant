@@ -40,7 +40,8 @@ data class MenuItem(
     @SerializedName("menu_id") val menuId: Int,
     @SerializedName("menu_name") val menuName: String,
     @SerializedName("price") val price: Int,
-    @SerializedName("category_id") val categoryId: Int
+    @SerializedName("category_id") val categoryId: Int,
+    @SerializedName("is_sold_out") val isSoldOut: Boolean = false
 )
 
 data class OrderDetail(
