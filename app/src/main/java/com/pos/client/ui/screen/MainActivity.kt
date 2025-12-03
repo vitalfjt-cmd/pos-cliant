@@ -55,7 +55,7 @@ private val tableListViewModel: TableListViewModel by lazy {
     TableListViewModel(tableRepository)
 }
 private val orderViewModel: OrderViewModel by lazy {
-    OrderViewModel(apiService)
+    OrderViewModel()
 }
 private val kitchenViewModel: KitchenViewModel by lazy {
     KitchenViewModel(apiService)

@@ -4,6 +4,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.PlayArrow
@@ -34,7 +35,7 @@ fun KitchenScreen(
                 title = { Text("キッチンディスプレイ (KDS)") },
                 navigationIcon = {
                     IconButton(onClick = onBackClicked) {
-                        Icon(Icons.Default.ArrowBack, contentDescription = "戻る")
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "戻る")
                     }
                 },
                 actions = {
@@ -66,7 +67,7 @@ fun KitchenScreen(
                                 onStartCooking = { viewModel.updateStatus(item.detailId, "調理中") },
                                 onCompleteCooking = { viewModel.updateStatus(item.detailId, "提供済") }
                             )
-                            Divider()
+                            HorizontalDivider()
                         }
                     }
                 }

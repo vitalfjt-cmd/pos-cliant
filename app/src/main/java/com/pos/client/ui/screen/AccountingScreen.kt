@@ -1,6 +1,7 @@
 package com.pos.client.ui.screen
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.grid.GridCells
@@ -9,6 +10,7 @@ import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -19,6 +21,7 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.pos.client.data.model.AccountingResponse
 import com.pos.client.viewmodel.OrderViewModel
 
 data class AccountingState(
@@ -65,6 +68,25 @@ fun AccountingScreen(
     val finalTotal = state.calculateFinalTotal(originalTotal)
     val change = state.calculateChange(originalTotal)
 
+    // ★追加: ダイアログ制御用
+    var showSplitBillDialog by remember { mutableStateOf(false) }
+    var showWarikanDialog by remember { mutableStateOf(false) }
+
+    // ★追加: 分割完了監視
+    val splitCompletedOrderId by viewModel.splitCompletedEvent.collectAsState()
+
+    // ★追加: 分割が完了したら、新しい伝票番号を検索して再読み込み
+    LaunchedEffect(splitCompletedOrderId) {
+        splitCompletedOrderId?.let { newOrderId ->
+            showSplitBillDialog = false
+            viewModel.clearSplitEvent()
+            // 新しい伝票（分割された方）をすぐに呼び出す場合
+            viewModel.searchOrderBySlip(newOrderId)
+            // または、トーストを出して元の伝票のままにするなら
+            // viewModel.fetchOrderHistory()
+        }
+    }
+
     LaunchedEffect(userMessage) {
         userMessage?.let {
             snackbarHostState.showSnackbar(it)
@@ -86,7 +108,7 @@ fun AccountingScreen(
                 title = { Text("会計処理 / 伝票呼出") },
                 navigationIcon = {
                     IconButton(onClick = onBackClicked) {
-                        Icon(Icons.Default.ArrowBack, contentDescription = "戻る")
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "戻る")
                     }
                 }
             )
@@ -114,7 +136,7 @@ fun AccountingScreen(
                             style = MaterialTheme.typography.titleMedium,
                             color = Color.Gray
                         )
-                        Divider(modifier = Modifier.padding(vertical = 8.dp))
+                        HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
 
                         LazyColumn(modifier = Modifier.weight(1f)) {
                             items(orderHistory?.details ?: emptyList()) { item ->
@@ -128,7 +150,7 @@ fun AccountingScreen(
                                     Text("x${item.quantity}", modifier = Modifier.padding(horizontal = 8.dp))
                                     Text("¥${item.subtotal}", fontWeight = FontWeight.Bold)
                                 }
-                                Divider(color = Color.LightGray.copy(alpha = 0.5f))
+                                HorizontalDivider(color = Color.LightGray.copy(alpha = 0.5f))
                             }
                         }
 
@@ -141,7 +163,7 @@ fun AccountingScreen(
                                 val discountAmount = originalTotal - finalTotal
                                 CalculationRow(label = label, amount = -discountAmount, isRed = true)
                             }
-                            Divider(modifier = Modifier.padding(vertical = 8.dp))
+                            HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
                             Row(
                                 modifier = Modifier.fillMaxWidth(),
                                 horizontalArrangement = Arrangement.SpaceBetween,
@@ -211,7 +233,43 @@ fun AccountingScreen(
                             )
                             FuncButton(
                                 text = "伝票合算",
-                                onClick = { state = state.copy(currentInput = "") },
+                                onClick = {
+                                    // 1. 親伝票（ターゲット）が表示されているか確認
+                                    val targetOrderId = orderHistory?.header?.orderId
+
+                                    // 2. テンキーに入力された子伝票（ソース）のIDを取得
+                                    val sourceOrderId = state.currentInput.toIntOrNull()
+
+                                    if (targetOrderId != null && sourceOrderId != null) {
+                                        // 合算実行
+                                        viewModel.executeMerge(sourceOrderId, targetOrderId)
+                                        // 入力クリア
+                                        state = state.copy(currentInput = "", deposit = 0)
+                                    } else {
+                                        // エラー表示（ViewModel経由が理想ですが、簡易的にトーストが出せないので今回は何もしないか、ログ出す）
+                                        // 実際は viewModel.showUserMessage("合算する伝票番号を入力してください") などとしたい
+                                    }
+                                },
+                                color = Color(0xFFCE93D8),
+                                modifier = Modifier.weight(1f).fillMaxWidth()
+                            )
+                            FuncButton(
+                                text = "ダミー",
+                                onClick = { /* 実装済みなら */ },
+                                color = Color(0xFFCE93D8),
+                                modifier = Modifier.weight(1f).fillMaxWidth()
+                            )
+                            // ★追加: 個別会計（明細分割）
+                            FuncButton(
+                                text = "個別会計",
+                                onClick = { showSplitBillDialog = true },
+                                color = Color(0xFFCE93D8),
+                                modifier = Modifier.weight(1f).fillMaxWidth()
+                            )
+                            // ★追加: 単純割り勘
+                            FuncButton(
+                                text = "割り勘",
+                                onClick = { showWarikanDialog = true },
                                 color = Color(0xFFCE93D8),
                                 modifier = Modifier.weight(1f).fillMaxWidth()
                             )
@@ -355,8 +413,29 @@ fun AccountingScreen(
             }
         )
     }
-}
 
+    // ★移植＆修正: 個別会計ダイアログ
+    if (showSplitBillDialog && orderHistory != null) {
+        SplitBillDialog(
+            orderHistory = orderHistory,
+            viewModel = viewModel, // ★名前解決のためにViewModelを渡す
+            onDismiss = { showSplitBillDialog = false },
+            onExecuteSplit = { selectedIds ->
+                orderHistory?.header?.orderId?.let { sourceId ->
+                    viewModel.executeSplitOrder(sourceId, selectedIds)
+                }
+            }
+        )
+    }
+
+    // ★新規: 割り勘ダイアログ
+    if (showWarikanDialog && orderHistory != null) {
+        WarikanDialog(
+            totalAmount = finalTotal, // 値引き後の金額
+            onDismiss = { showWarikanDialog = false }
+        )
+    }
+}
 
 @Composable
 fun CalculationRow(label: String, amount: Int, isRed: Boolean = false, isBold: Boolean = false) {
@@ -406,4 +485,111 @@ fun RowScope.TenKeyButton(text: String, onClick: () -> Unit) {
     Button(onClick = onClick, modifier = Modifier.weight(1f).fillMaxHeight(), shape = RoundedCornerShape(8.dp), colors = ButtonDefaults.buttonColors(containerColor = Color.White), elevation = ButtonDefaults.buttonElevation(2.dp)) {
         Text(text = text, fontSize = 24.sp, color = Color.Black, fontWeight = FontWeight.Bold)
     }
+}
+
+// --- コンポーネント定義 ---
+
+// ★OrderScreenから移動し、ViewModelを使って名前を表示するように修正
+@Composable
+fun SplitBillDialog(
+    orderHistory: AccountingResponse?,
+    viewModel: OrderViewModel, // 追加
+    onDismiss: () -> Unit,
+    onExecuteSplit: (List<Int>) -> Unit
+) {
+    val selectedDetailIds = remember { mutableStateListOf<Int>() }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("個別会計：支払う商品を選択") },
+        text = {
+            Column(modifier = Modifier.fillMaxWidth().heightIn(max = 500.dp)) {
+                // フィルタリング: まだ支払っていないものだけ
+                val activeDetails = orderHistory?.details?.filter {
+                    it.itemStatus != "会計済" && it.itemStatus != "CANCELLED"
+                } ?: emptyList()
+
+                if (activeDetails.isEmpty()) {
+                    Text("精算可能な商品がありません", color = Color.Gray)
+                } else {
+                    LazyColumn {
+                        items(activeDetails) { detail ->
+                            val isSelected = selectedDetailIds.contains(detail.detailId)
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clickable {
+                                        if (isSelected) selectedDetailIds.remove(detail.detailId)
+                                        else selectedDetailIds.add(detail.detailId)
+                                    }
+                                    .padding(8.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Checkbox(
+                                    checked = isSelected,
+                                    onCheckedChange = { if(it) selectedDetailIds.add(detail.detailId) else selectedDetailIds.remove(detail.detailId) }
+                                )
+                                Column {
+                                    // ★修正: 商品名を表示
+                                    Text(viewModel.getMenuName(detail.menuId), fontWeight = FontWeight.Bold)
+                                    Text("¥${detail.subtotal} (数量:${detail.quantity})", style = MaterialTheme.typography.bodySmall)
+                                }
+                            }
+                            HorizontalDivider()
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            Button(
+                onClick = { onExecuteSplit(selectedDetailIds.toList()) },
+                enabled = selectedDetailIds.isNotEmpty()
+            ) { Text("分割実行") }
+        },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("キャンセル") } }
+    )
+}
+
+// ★新規: 単純割り勘ダイアログ (電卓機能)
+@Composable
+fun WarikanDialog(
+    totalAmount: Int,
+    onDismiss: () -> Unit
+) {
+    var peopleCount by remember { mutableStateOf("2") } // デフォルト2名
+    val count = peopleCount.toIntOrNull() ?: 1
+    val amountPerPerson = totalAmount / count
+    val remainder = totalAmount % count
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("割り勘計算") },
+        text = {
+            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                Text("合計金額: ¥$totalAmount", style = MaterialTheme.typography.titleMedium)
+                Spacer(modifier = Modifier.height(16.dp))
+
+                OutlinedTextField(
+                    value = peopleCount,
+                    onValueChange = { if (it.all { c -> c.isDigit() } && it.length < 3) peopleCount = it },
+                    label = { Text("人数") },
+                    singleLine = true
+                )
+
+                Spacer(modifier = Modifier.height(24.dp))
+
+                if (count > 0) {
+                    Text("1人あたり", style = MaterialTheme.typography.bodyMedium)
+                    Text("¥$amountPerPerson", style = MaterialTheme.typography.displayMedium, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
+                    if (remainder > 0) {
+                        Text("余り: ¥$remainder", color = Color.Gray)
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            Button(onClick = onDismiss) { Text("閉じる") }
+        }
+    )
 }

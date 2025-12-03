@@ -9,6 +9,8 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.List
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.material3.TabRowDefaults.tabIndicatorOffset
@@ -67,6 +69,12 @@ fun OrderScreen(
     var showCartDialog by remember { mutableStateOf(false) }
     var showHistoryDialog by remember { mutableStateOf(false) }
 
+//    // ★追加: 分割ダイアログ表示フラグ
+//    var showSplitDialog by remember { mutableStateOf(false) }
+    // ★追加: 分割完了イベントの監視
+    val splitCompletedOrderId by viewModel.splitCompletedEvent.collectAsState()
+
+
     LaunchedEffect(tableId) {
         viewModel.initializeOrder(tableId, bookId, existingOrderId, customerCount)
     }
@@ -92,7 +100,7 @@ fun OrderScreen(
                 title = { Text("注文 (Table: $tableId)") },
                 navigationIcon = {
                     IconButton(onClick = onBackClicked) {
-                        Icon(Icons.Default.ArrowBack, contentDescription = "戻る")
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "戻る")
                     }
                 }
             )
@@ -110,7 +118,7 @@ fun OrderScreen(
                         showHistoryDialog = true
                     }) {
                         Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                            Icon(Icons.Default.List, contentDescription = null)
+                            Icon(Icons.AutoMirrored.Filled.List, contentDescription = null)
                             Text("注文履歴")
                         }
                     }
@@ -174,30 +182,7 @@ fun OrderScreen(
                             )
                         }
                     }
-                    // テストのため、一時変更　スタート
-//                    val uiCategories = remember(menuStructure) {
-//                        menuStructure.entries.map { (majorName, minorMap) ->
-//                            UiMenuCategory(
-//                                id = majorName,
-//                                name = majorName,
-//                                subCategories = minorMap.entries.map { (minorName, items) ->
-//                                    UiMenuSubCategory(
-//                                        id = minorName,
-//                                        name = minorName,
-//                                        // ★ここで一時的にデータを加工
-//                                        items = items.map { item ->
-//                                            // テスト用: 価格が600円以上の商品を「売り切れ」にしてみる
-//                                            if (item.price >= 600) {
-//                                                item.copy(isSoldOut = true)
-//                                            } else {
-//                                                item
-//                                            }
-//                                        }
-//                                    )
-//                                }
-//                            )
-//                        }
-//                    }
+
                     //　変更箇所　おわり
                     // ★修正ポイント: 古いコードを削除し、新しい2階層タブコンポーネントを呼び出す
                     OrderScreenTabs(
@@ -242,6 +227,21 @@ fun OrderScreen(
     if (showHistoryDialog) {
         HistoryListDialog(orderHistory, viewModel) { showHistoryDialog = false }
     }
+
+    // ★追加5: 分割ダイアログの表示
+//    if (showSplitDialog) {
+//        SplitBillDialog(
+//            orderHistory = orderHistory,
+//            onDismiss = { showSplitDialog = false },
+//            onExecuteSplit = { selectedIds ->
+//                // 現在のorderId (existingOrderId or currentOrderId) を使って実行
+//                // viewModel.currentOrderId.value が確実です
+//                viewModel.currentOrderId.value?.let { sourceId ->
+//                    viewModel.executeSplitOrder(sourceId, selectedIds)
+//                }
+//            }
+//        )
+//    }
 }
 
 // --- Components ---
@@ -378,18 +378,7 @@ fun MenuItemRow(menuItem: MenuItem, onClick: (MenuItem) -> Unit) {
         }
     }
 }
-//@Composable
-//fun MenuItemRow(menuItem: MenuItem, onClick: (MenuItem) -> Unit) {
-//    Card(
-//        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp).clickable { onClick(menuItem) },
-//        elevation = CardDefaults.cardElevation(2.dp)
-//    ) {
-//        Row(modifier = Modifier.padding(16.dp).fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-//            Text(menuItem.menuName, fontWeight = FontWeight.Bold)
-//            Text("¥${menuItem.price}", color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold)
-//        }
-//    }
-//}
+
 @Composable
 fun ItemDetailDialog(
     menuItem: MenuItem,
@@ -425,7 +414,7 @@ fun ItemDetailDialog(
                 }
 
                 Spacer(modifier = Modifier.height(16.dp))
-                Divider()
+                HorizontalDivider()
                 Text("オプション選択", style = MaterialTheme.typography.titleSmall, modifier = Modifier.padding(vertical = 8.dp))
 
                 allOptions.forEach { option ->
@@ -503,7 +492,7 @@ fun CartDialog(
                                 }
                                 IconButton(onClick = { onRemoveItem(item) }) { Icon(Icons.Default.Delete, null, tint = Color.Red) }
                             }
-                            Divider()
+                            HorizontalDivider()
                         }
                     }
                 }
@@ -544,7 +533,7 @@ fun HistoryListDialog(history: AccountingResponse?, viewModel: OrderViewModel, o
                                 }
                                 Text("${detail.quantity}点")
                             }
-                            Divider()
+                            HorizontalDivider()
                         }
                     }
                 }
@@ -554,3 +543,86 @@ fun HistoryListDialog(history: AccountingResponse?, viewModel: OrderViewModel, o
         }
     }
 }
+
+//@Composable
+//fun SplitBillDialog(
+//    orderHistory: AccountingResponse?,
+//    onDismiss: () -> Unit,
+//    onExecuteSplit: (List<Int>) -> Unit
+//) {
+//    // 選択された明細IDを管理
+//    val selectedDetailIds = remember { mutableStateListOf<Int>() }
+//
+//    AlertDialog(
+//        onDismissRequest = onDismiss,
+//        title = { Text("個別会計：支払う商品を選択") },
+//        text = {
+//            Column(
+//                modifier = Modifier
+//                    .fillMaxWidth()
+//                    .heightIn(max = 500.dp)
+//            ) {
+//                if (orderHistory?.details.isNullOrEmpty()) {
+//                    Box(modifier = Modifier.fillMaxWidth().height(100.dp), contentAlignment = Alignment.Center) {
+//                        Text("対象の商品がありません", color = Color.Gray)
+//                    }
+//                } else {
+//                    // まだ会計が終わっていない商品だけを表示
+//                    val activeDetails = orderHistory!!.details!!.filter {
+//                        it.itemStatus != "会計済" && it.itemStatus != "CANCELLED"
+//                    }
+//
+//                    if (activeDetails.isEmpty()) {
+//                        Box(modifier = Modifier.fillMaxWidth().height(100.dp), contentAlignment = Alignment.Center) {
+//                            Text("精算可能な商品がありません", color = Color.Gray)
+//                        }
+//                    } else {
+//                        LazyColumn {
+//                            items(activeDetails) { detail ->
+//                                val isSelected = selectedDetailIds.contains(detail.detailId)
+//
+//                                Row(
+//                                    modifier = Modifier
+//                                        .fillMaxWidth()
+//                                        .clickable {
+//                                            if (isSelected) selectedDetailIds.remove(detail.detailId)
+//                                            else selectedDetailIds.add(detail.detailId)
+//                                        }
+//                                        .padding(vertical = 8.dp),
+//                                    verticalAlignment = Alignment.CenterVertically
+//                                ) {
+//                                    Checkbox(
+//                                        checked = isSelected,
+//                                        onCheckedChange = { checked ->
+//                                            if (checked) selectedDetailIds.add(detail.detailId)
+//                                            else selectedDetailIds.remove(detail.detailId)
+//                                        }
+//                                    )
+//                                    Spacer(modifier = Modifier.width(8.dp))
+//                                    Column {
+//                                        // 商品名を表示したい場合はViewModel等で結合が必要ですが、一旦IDで表示
+////                                        Text("商品ID: ${detail.menuId}", fontWeight = FontWeight.Bold)
+//                                        Text(viewModel.getMenuName(detail.menuId), fontWeight = FontWeight.Bold)
+//                                        Text("¥${detail.subtotal} (数量:${detail.quantity})", style = MaterialTheme.typography.bodyMedium)
+//                                    }
+//                                }
+//                                HorizontalDivider() // Divider -> HorizontalDivider
+//                            }
+//                        }
+//                    }
+//                }
+//            }
+//        },
+//        confirmButton = {
+//            Button(
+//                onClick = { onExecuteSplit(selectedDetailIds.toList()) },
+//                enabled = selectedDetailIds.isNotEmpty()
+//            ) {
+//                Text("選択して会計")
+//            }
+//        },
+//        dismissButton = {
+//            TextButton(onClick = onDismiss) { Text("キャンセル") }
+//        }
+//    )
+//}

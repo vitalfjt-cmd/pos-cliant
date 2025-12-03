@@ -155,7 +155,7 @@ fun EntranceDialog(
                 }
 
                 Spacer(modifier = Modifier.height(24.dp))
-                Divider()
+                HorizontalDivider()
                 Spacer(modifier = Modifier.height(16.dp))
 
                 // --- ★追加: メニューブック選択 ---

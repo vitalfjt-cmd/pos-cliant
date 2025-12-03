@@ -133,17 +133,17 @@ data class AccountingRequest(
     @SerializedName("discountId") val discountId: Int = 1, // 1:なし
     @SerializedName("discountValue") val discountValue: Int = 0
 )
-// 割り勘
-data class SplitOrderRequest(
-    val sourceOrderId: Int,
-    val detailIds: List<Int>
-)
-
-data class SplitOrderResponse(
-    val sourceOrderId: Int,
-    val newOrderId: Int,
-    val message: String
-)
+//// 割り勘
+//data class SplitOrderRequest(
+//    val sourceOrderId: Int,
+//    val detailIds: List<Int>
+//)
+//
+//data class SplitOrderResponse(
+//    val sourceOrderId: Int,
+//    val newOrderId: Int,
+//    val message: String
+//)
 
 // サーバーからのMapのキーに合わせて受け取るため、安全策としてDTOではなくMapで受ける手もありますが、
 // ここでは型定義します。※サーバー側クエリに "d.detail_id" を追加することを強く推奨します。
