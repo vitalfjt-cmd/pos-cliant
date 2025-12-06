@@ -1,7 +1,6 @@
 package com.pos.client.ui.screen
 
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.grid.GridCells
@@ -11,7 +10,6 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -21,9 +19,9 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.pos.client.data.model.AccountingResponse
 import com.pos.client.viewmodel.OrderViewModel
-
+import com.pos.client.ui.dialog.SplitBillDialog
+import com.pos.client.ui.dialog.WarikanDialog
 data class AccountingState(
     val deposit: Int = 0,
     val discountValue: Int = 0,
@@ -97,9 +95,12 @@ fun AccountingScreen(
     LaunchedEffect(isAccountingCompleted) {
         if (isAccountingCompleted) {
             showCompleteDialog = true
-//            viewModel.clearAccountingStatus()
-//            onBackClicked()
         }
+    }
+
+    // 画面表示時にデータ読み込みを確認する処理を追加
+    LaunchedEffect(Unit) {
+        viewModel.ensureMenuMapLoaded()
     }
 
     Scaffold(
@@ -325,10 +326,6 @@ fun AccountingScreen(
                                         state = state.copy(deposit = deposit, currentInput = "")
                                     }
                                 }
-//                                onEnterClick = {
-//                                    val deposit = state.currentInput.toIntOrNull() ?: 0
-//                                    state = state.copy(deposit = deposit, currentInput = "")
-//                                }
                             )
                         }
                     }
@@ -366,17 +363,11 @@ fun AccountingScreen(
                                         // ここではViewModelに追加した前提で呼び出します。
                                         viewModel.showUserMessage("預かり金が不足しています")
                                     } else {
-//                                        viewModel.completeAccounting(paymentId = id, amount = finalTotal)
                                         // ★修正: 確定したお釣り額を保存してからAPIを呼ぶ
                                         lastChange = change
                                         viewModel.completeAccounting(paymentId = id, amount = finalTotal)
                                     }
                                 }
-//                                if (orderHistory != null) {
-//                                    viewModel.completeAccounting(paymentId = id, amount = finalTotal)
-//                                    // 会計完了で state をクリア
-//                                    state = AccountingState()
-//                                }
                             }
                         }
                     }
@@ -385,7 +376,7 @@ fun AccountingScreen(
         }
     )
 
-    // ★追加: 会計完了ダイアログ
+    // 会計完了ダイアログ
     if (showCompleteDialog) {
         AlertDialog(
             onDismissRequest = {}, // 外側タップで閉じない
@@ -394,7 +385,7 @@ fun AccountingScreen(
                 Column {
                     Text("お会計が完了しました。", style = MaterialTheme.typography.bodyLarge)
                     Spacer(modifier = Modifier.height(8.dp))
-//                    Text("お釣り: ¥$change", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
+//                    Text("お釣り: \$change", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
                     // ★修正: 計算済みで保存しておいたお釣り(lastChange)を表示
                     Text("お釣り: ¥$lastChange", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
                 }
@@ -414,7 +405,7 @@ fun AccountingScreen(
         )
     }
 
-    // ★移植＆修正: 個別会計ダイアログ
+    // 個別会計ダイアログ
     if (showSplitBillDialog && orderHistory != null) {
         SplitBillDialog(
             orderHistory = orderHistory,
@@ -428,7 +419,7 @@ fun AccountingScreen(
         )
     }
 
-    // ★新規: 割り勘ダイアログ
+    // 割り勘ダイアログ
     if (showWarikanDialog && orderHistory != null) {
         WarikanDialog(
             totalAmount = finalTotal, // 値引き後の金額
@@ -485,111 +476,4 @@ fun RowScope.TenKeyButton(text: String, onClick: () -> Unit) {
     Button(onClick = onClick, modifier = Modifier.weight(1f).fillMaxHeight(), shape = RoundedCornerShape(8.dp), colors = ButtonDefaults.buttonColors(containerColor = Color.White), elevation = ButtonDefaults.buttonElevation(2.dp)) {
         Text(text = text, fontSize = 24.sp, color = Color.Black, fontWeight = FontWeight.Bold)
     }
-}
-
-// --- コンポーネント定義 ---
-
-// ★OrderScreenから移動し、ViewModelを使って名前を表示するように修正
-@Composable
-fun SplitBillDialog(
-    orderHistory: AccountingResponse?,
-    viewModel: OrderViewModel, // 追加
-    onDismiss: () -> Unit,
-    onExecuteSplit: (List<Int>) -> Unit
-) {
-    val selectedDetailIds = remember { mutableStateListOf<Int>() }
-
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text("個別会計：支払う商品を選択") },
-        text = {
-            Column(modifier = Modifier.fillMaxWidth().heightIn(max = 500.dp)) {
-                // フィルタリング: まだ支払っていないものだけ
-                val activeDetails = orderHistory?.details?.filter {
-                    it.itemStatus != "会計済" && it.itemStatus != "CANCELLED"
-                } ?: emptyList()
-
-                if (activeDetails.isEmpty()) {
-                    Text("精算可能な商品がありません", color = Color.Gray)
-                } else {
-                    LazyColumn {
-                        items(activeDetails) { detail ->
-                            val isSelected = selectedDetailIds.contains(detail.detailId)
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .clickable {
-                                        if (isSelected) selectedDetailIds.remove(detail.detailId)
-                                        else selectedDetailIds.add(detail.detailId)
-                                    }
-                                    .padding(8.dp),
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Checkbox(
-                                    checked = isSelected,
-                                    onCheckedChange = { if(it) selectedDetailIds.add(detail.detailId) else selectedDetailIds.remove(detail.detailId) }
-                                )
-                                Column {
-                                    // ★修正: 商品名を表示
-                                    Text(viewModel.getMenuName(detail.menuId), fontWeight = FontWeight.Bold)
-                                    Text("¥${detail.subtotal} (数量:${detail.quantity})", style = MaterialTheme.typography.bodySmall)
-                                }
-                            }
-                            HorizontalDivider()
-                        }
-                    }
-                }
-            }
-        },
-        confirmButton = {
-            Button(
-                onClick = { onExecuteSplit(selectedDetailIds.toList()) },
-                enabled = selectedDetailIds.isNotEmpty()
-            ) { Text("分割実行") }
-        },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("キャンセル") } }
-    )
-}
-
-// ★新規: 単純割り勘ダイアログ (電卓機能)
-@Composable
-fun WarikanDialog(
-    totalAmount: Int,
-    onDismiss: () -> Unit
-) {
-    var peopleCount by remember { mutableStateOf("2") } // デフォルト2名
-    val count = peopleCount.toIntOrNull() ?: 1
-    val amountPerPerson = totalAmount / count
-    val remainder = totalAmount % count
-
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text("割り勘計算") },
-        text = {
-            Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                Text("合計金額: ¥$totalAmount", style = MaterialTheme.typography.titleMedium)
-                Spacer(modifier = Modifier.height(16.dp))
-
-                OutlinedTextField(
-                    value = peopleCount,
-                    onValueChange = { if (it.all { c -> c.isDigit() } && it.length < 3) peopleCount = it },
-                    label = { Text("人数") },
-                    singleLine = true
-                )
-
-                Spacer(modifier = Modifier.height(24.dp))
-
-                if (count > 0) {
-                    Text("1人あたり", style = MaterialTheme.typography.bodyMedium)
-                    Text("¥$amountPerPerson", style = MaterialTheme.typography.displayMedium, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
-                    if (remainder > 0) {
-                        Text("余り: ¥$remainder", color = Color.Gray)
-                    }
-                }
-            }
-        },
-        confirmButton = {
-            Button(onClick = onDismiss) { Text("閉じる") }
-        }
-    )
 }

@@ -37,7 +37,6 @@ sealed class Screen {
 }
 
 private val gson = Gson()
-// ★環境に合わせて変更してください
 private const val BASE_URL = "http://192.168.45.2:8080/api/"
 private val retrofit: Retrofit by lazy {
     Retrofit.Builder()

@@ -10,7 +10,6 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 
-// 表示用のデータクラス
 data class KitchenItem(
     val detailId: Int,
     val orderId: Int,
@@ -38,7 +37,7 @@ class KitchenViewModel(
         viewModelScope.launch {
             while (isActive) {
                 fetchItems()
-                delay(5000) // 5秒ごとに更新
+                delay(5000)
             }
         }
     }
@@ -49,27 +48,44 @@ class KitchenViewModel(
                 val response = apiService.getKdsItems()
                 if (response.isSuccessful) {
                     val rawList = response.body() ?: emptyList()
-                    // MapからKitchenItemへ変換
-                    val items = rawList.mapNotNull { map ->
+
+                    val items = rawList.map { map ->
                         try {
-                            // サーバーのSQLの列名に合わせて取得
-                            // SELECT d.order_id, d.item_status, d.quantity, m.menu_name, t.table_number ...
-                            // ※ detail_id がないと更新できないため、サーバー側で SELECT d.detail_id も必要
-                            // ★ここ重要: サーバーがdetail_idを返していない場合、動かない可能性があります
-                            val detailId = (map["detail_id"] as? Double)?.toInt() // Gsonは数値をDoubleにする場合がある
-                                ?: (map["detail_id"] as? Int)
-                                ?: return@mapNotNull null // IDがないデータはスキップ
+                            // ★修正: キー名のゆらぎに対応 (スネークケース優先、なければキャメルケース)
+                            // ID
+                            val idObj = map["detail_id"] ?: map["detailId"] ?: map["id"]
+                            // Double型で来る場合があるので安全に変換
+                            val detailId = (idObj as? Double)?.toInt() ?: (idObj as? Int) ?: -1 // IDがなくても -1 として表示させる
+
+                            // OrderID
+                            val orderIdObj = map["order_id"] ?: map["orderId"]
+                            val orderId = (orderIdObj as? Double)?.toInt() ?: (orderIdObj as? Int) ?: 0
+
+                            // MenuName
+                            val menuName = (map["menu_name"] ?: map["menuName"] ?: "名称不明").toString()
+
+                            // Quantity
+                            val qtyObj = map["quantity"]
+                            val quantity = (qtyObj as? Double)?.toInt() ?: (qtyObj as? Int) ?: 1
+
+                            // Status
+                            val status = (map["item_status"] ?: map["itemStatus"] ?: map["status"] ?: "状態不明").toString()
+
+                            // Table
+                            val tableNum = (map["table_number"] ?: map["tableNumber"] ?: "-").toString()
 
                             KitchenItem(
                                 detailId = detailId,
-                                orderId = ((map["order_id"] as? Double)?.toInt() ?: map["order_id"] as? Int) ?: 0,
-                                menuName = (map["menu_name"] as? String) ?: "不明",
-                                quantity = ((map["quantity"] as? Double)?.toInt() ?: map["quantity"] as? Int) ?: 1,
-                                status = (map["item_status"] as? String) ?: "未調理",
-                                tableNumber = (map["table_number"] as? String) ?: "-"
+                                orderId = orderId,
+                                menuName = menuName,
+                                quantity = quantity,
+                                status = status,
+                                tableNumber = tableNum
                             )
                         } catch (e: Exception) {
-                            null
+                            println("KitchenDebug: Parse Error ${e.message}")
+                            // エラーがあってもダミーを表示して気づけるようにする
+                            KitchenItem(-99, 0, "パースエラー", 1, "Error", "-")
                         }
                     }
                     _kdsItems.value = items
@@ -81,11 +97,13 @@ class KitchenViewModel(
     }
 
     fun updateStatus(detailId: Int, newStatus: String) {
+        if (detailId < 0) return // ダミーIDの場合は更新しない
+
         viewModelScope.launch {
             try {
                 val response = apiService.updateKdsStatus(detailId, newStatus)
                 if (response.isSuccessful) {
-                    fetchItems() // 更新成功したら即座にリストを再取得
+                    fetchItems()
                 } else {
                     _errorMessage.value = "ステータス更新失敗"
                 }

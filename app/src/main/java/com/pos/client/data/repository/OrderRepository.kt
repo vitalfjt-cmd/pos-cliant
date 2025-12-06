@@ -7,7 +7,7 @@ import com.pos.client.data.model.SplitOrderResponse
 
 class OrderRepository(private val api: OrderApi) {
 
-    // ★今回の追加: 伝票分割
+    // 伝票分割
     suspend fun splitOrder(sourceOrderId: Int, detailIds: List<Int>): SplitOrderResponse? {
         return try {
             val response = api.splitOrder(SplitOrderRequest(sourceOrderId, detailIds))
@@ -33,6 +33,4 @@ class OrderRepository(private val api: OrderApi) {
             false
         }
     }
-
-    // ※他のAPI呼び出し処理も、順次ここに移していくと良いです
 }

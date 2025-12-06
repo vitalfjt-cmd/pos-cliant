@@ -41,22 +41,36 @@ data class MenuItem(
     @SerializedName("menu_name") val menuName: String,
     @SerializedName("price") val price: Int,
     @SerializedName("category_id") val categoryId: Int,
-    @SerializedName("is_sold_out") val isSoldOut: Boolean = false
+    @SerializedName("is_sold_out") val isSoldOut: Boolean = false,
+    @SerializedName("image_url") val imageUrl: String? = null
 )
 
 data class OrderDetail(
+//    内容同じ
+    // 新規登録時は null を送る（0だと更新扱いになりエラーになる）
     val detailId: Int? = null,
+
+    // サーバーは "orderId" を期待しています（前回の order_id は間違いでした）
     val orderId: Int,
     val menuId: Int,
     val quantity: Int,
+
+    // 金額やステータスもキャメルケースで送ります
     val priceAtOrder: Int? = null,
     val subtotal: Int? = null,
     val itemStatus: String? = null,
-    // ★追加
-    val optionIds: List<Int>? = null, // 送信用IDリスト
-    val optionsText: String? = null   // 表示用テキスト（履歴などで使用）
+
+    // オプションは空リストでもOK
+    val optionIds: List<Int>? = null,
+    val optionsText: String? = null
+)
+// サーバーは "order_id" を返してくるので、ここでマッピングしないとIDが0になります
+data class StartOrderResponse(
+    @SerializedName("order_id") val orderId: Int,
+    @SerializedName("message") val message: String
 )
 
+// サーバーは "detail_id" を返してくるためマッピングが必要
 data class OrderDetailResponse(
     @SerializedName("detail_id") val detailId: Int,
     val message: String
@@ -102,14 +116,14 @@ data class PaymentMethodInfo(
     val methodName: String
 )
 
-// ★追加: オプションマスタ
+// オプションマスタ
 data class OptionItem(
     @SerializedName("optionId") val optionId: Int,
     @SerializedName("optionName") val optionName: String,
     @SerializedName("price") val price: Int
 )
 
-// --- ★追加: KDS用のデータクラス ---
+// --- KDS用のデータクラス ---
 data class KdsItem(
     @SerializedName("order_id") val orderId: Int,
     @SerializedName("menu_name") val menuName: String,
@@ -124,7 +138,7 @@ data class KdsItem(
     // ここでは一旦 detailId がある前提で書きますが、動かない場合はサーバークエリ修正が必要です。
 )
 
-// ★追加: 会計登録用リクエストデータ
+// 会計登録用リクエストデータ
 data class AccountingRequest(
     @SerializedName("orderId") val orderId: Int,
     @SerializedName("paymentId") val paymentId: Int,
@@ -133,20 +147,7 @@ data class AccountingRequest(
     @SerializedName("discountId") val discountId: Int = 1, // 1:なし
     @SerializedName("discountValue") val discountValue: Int = 0
 )
-//// 割り勘
-//data class SplitOrderRequest(
-//    val sourceOrderId: Int,
-//    val detailIds: List<Int>
-//)
-//
-//data class SplitOrderResponse(
-//    val sourceOrderId: Int,
-//    val newOrderId: Int,
-//    val message: String
-//)
 
-// サーバーからのMapのキーに合わせて受け取るため、安全策としてDTOではなくMapで受ける手もありますが、
-// ここでは型定義します。※サーバー側クエリに "d.detail_id" を追加することを強く推奨します。
 // --- API Service Interface ---
 
 interface ApiService {

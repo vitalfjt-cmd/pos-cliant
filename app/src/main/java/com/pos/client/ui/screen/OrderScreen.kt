@@ -5,29 +5,27 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.List
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
-import androidx.compose.material3.TabRowDefaults.tabIndicatorOffset
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.window.Dialog
 import com.pos.client.data.model.MenuItem
-import com.pos.client.data.model.CartItem
-import com.pos.client.data.model.AccountingResponse
-import com.pos.client.data.model.OptionItem
 import com.pos.client.viewmodel.OrderViewModel
+import com.pos.client.ui.dialog.ItemDetailDialog
+import com.pos.client.ui.dialog.CartDialog
+import com.pos.client.ui.dialog.HistoryListDialog
 import kotlinx.coroutines.delay
-import androidx.compose.ui.draw.rotate
+import coil.compose.AsyncImage
+
 
 // ★ここに追加：UI専用のデータクラス（MenuItemは既存のものを使うので定義しない）
 data class UiMenuCategory(
@@ -69,11 +67,10 @@ fun OrderScreen(
     var showCartDialog by remember { mutableStateOf(false) }
     var showHistoryDialog by remember { mutableStateOf(false) }
 
-//    // ★追加: 分割ダイアログ表示フラグ
-//    var showSplitDialog by remember { mutableStateOf(false) }
     // ★追加: 分割完了イベントの監視
     val splitCompletedOrderId by viewModel.splitCompletedEvent.collectAsState()
-
+    // ★追加: 現在の注文IDを監視
+    val currentOrderId by viewModel.currentOrderId.collectAsState()
 
     LaunchedEffect(tableId) {
         viewModel.initializeOrder(tableId, bookId, existingOrderId, customerCount)
@@ -97,7 +94,7 @@ fun OrderScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("注文 (Table: $tableId)") },
+                title = { Text("注文 (Table: $tableId / ID: ${currentOrderId ?: "未生成"})") },
                 navigationIcon = {
                     IconButton(onClick = onBackClicked) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "戻る")
@@ -164,9 +161,6 @@ fun OrderScreen(
         content = { paddingValues ->
             Column(modifier = Modifier.padding(paddingValues).fillMaxSize()) {
                 if (menuStructure.isNotEmpty()) {
-                    // ★ここが修正ポイント: Mapデータを新しいUI用のListデータに変換
-                    // Map<Major, Map<Minor, List<MenuItem>>> -> List<UiMenuCategory>
-                    // テストのため一時的に変更
                     val uiCategories = remember(menuStructure) {
                         menuStructure.entries.map { (majorName, minorMap) ->
                             UiMenuCategory(
@@ -183,7 +177,6 @@ fun OrderScreen(
                         }
                     }
 
-                    //　変更箇所　おわり
                     // ★修正ポイント: 古いコードを削除し、新しい2階層タブコンポーネントを呼び出す
                     OrderScreenTabs(
                         categories = uiCategories,
@@ -227,21 +220,15 @@ fun OrderScreen(
     if (showHistoryDialog) {
         HistoryListDialog(orderHistory, viewModel) { showHistoryDialog = false }
     }
+}
 
-    // ★追加5: 分割ダイアログの表示
-//    if (showSplitDialog) {
-//        SplitBillDialog(
-//            orderHistory = orderHistory,
-//            onDismiss = { showSplitDialog = false },
-//            onExecuteSplit = { selectedIds ->
-//                // 現在のorderId (existingOrderId or currentOrderId) を使って実行
-//                // viewModel.currentOrderId.value が確実です
-//                viewModel.currentOrderId.value?.let { sourceId ->
-//                    viewModel.executeSplitOrder(sourceId, selectedIds)
-//                }
-//            }
-//        )
-//    }
+// Helper: 画像のフルパスを作る (http://192.168.x.x:8080/images/...)
+fun getFullImageUrl(path: String?): String? {
+    if (path.isNullOrEmpty()) return null
+    // RetrofitClient.BASE_URL は "http://.../api/" となっている場合があるので調整が必要
+    // ここでは簡易的にハードコードか、BASE_URLから "api/" を除いて結合する処理を書きます
+    val baseUrl = "http://192.168.45.2:8080" // ★環境に合わせて変更
+    return if (path.startsWith("http")) path else "$baseUrl$path"
 }
 
 // --- Components ---
@@ -325,40 +312,64 @@ fun OrderScreenTabs(
 // 既存のコンポーネント (MenuItemRowなど) はそのまま利用
 @Composable
 fun MenuItemRow(menuItem: MenuItem, onClick: (MenuItem) -> Unit) {
-    // 売り切れかどうかで見た目と動作を変える
     val cardColor = if (menuItem.isSoldOut) Color.LightGray.copy(alpha = 0.5f) else MaterialTheme.colorScheme.surface
     val contentColor = if (menuItem.isSoldOut) Color.Gray else MaterialTheme.colorScheme.onSurface
 
-    // カード UI
     Card(
         modifier = Modifier
             .fillMaxWidth()
             .padding(horizontal = 16.dp, vertical = 4.dp)
-            .height(IntrinsicSize.Min) // 高さを中身に合わせつつ固定
-            .clickable(enabled = !menuItem.isSoldOut) { onClick(menuItem) }, // 売り切れならクリック無効
+            .height(IntrinsicSize.Min)
+            .clickable(enabled = !menuItem.isSoldOut) { onClick(menuItem) },
         elevation = CardDefaults.cardElevation(if (menuItem.isSoldOut) 0.dp else 2.dp),
         colors = CardDefaults.cardColors(containerColor = cardColor)
     ) {
         Box(contentAlignment = Alignment.Center) {
-            // 通常のコンテンツ
             Row(
                 modifier = Modifier
-                    .padding(16.dp)
+                    .padding(12.dp) // 少しパディング調整
                     .fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Text(
-                    text = menuItem.menuName,
-                    fontWeight = FontWeight.Bold,
-                    color = contentColor,
-                    style = if (menuItem.isSoldOut) MaterialTheme.typography.bodyLarge.copy(textDecoration = androidx.compose.ui.text.style.TextDecoration.LineThrough) else MaterialTheme.typography.bodyLarge
-                )
+                // ★追加: 画像表示エリア
+                if (menuItem.imageUrl != null) {
+                    AsyncImage(
+                        model = getFullImageUrl(menuItem.imageUrl),
+                        contentDescription = menuItem.menuName,
+                        modifier = Modifier
+                            .size(64.dp) // 正方形
+                            .background(Color.LightGray, shape = RoundedCornerShape(8.dp)),
+                        contentScale = androidx.compose.ui.layout.ContentScale.Crop
+                    )
+                    Spacer(modifier = Modifier.width(16.dp))
+                } else {
+                    // 画像がない場合のダミー（必要なら）
+                    Box(
+                        modifier = Modifier
+                            .size(64.dp)
+                            .background(Color.LightGray.copy(alpha = 0.3f), shape = RoundedCornerShape(8.dp)),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text("No Image", style = MaterialTheme.typography.bodySmall, color = Color.Gray)
+                    }
+                    Spacer(modifier = Modifier.width(16.dp))
+                }
+
+                // テキスト情報
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = menuItem.menuName,
+                        fontWeight = FontWeight.Bold,
+                        color = contentColor,
+                        style = if (menuItem.isSoldOut) MaterialTheme.typography.bodyLarge.copy(textDecoration = androidx.compose.ui.text.style.TextDecoration.LineThrough) else MaterialTheme.typography.bodyLarge
+                    )
+                }
 
                 Text(
                     text = "¥${menuItem.price}",
                     color = if (menuItem.isSoldOut) contentColor else MaterialTheme.colorScheme.primary,
-                    fontWeight = FontWeight.Bold
+                    fontWeight = FontWeight.Bold,
+                    modifier = Modifier.padding(start = 8.dp)
                 )
             }
 
@@ -378,251 +389,3 @@ fun MenuItemRow(menuItem: MenuItem, onClick: (MenuItem) -> Unit) {
         }
     }
 }
-
-@Composable
-fun ItemDetailDialog(
-    menuItem: MenuItem,
-    allOptions: List<OptionItem>,
-    onDismiss: () -> Unit,
-    onAddToCart: (Int, List<OptionItem>) -> Unit
-) {
-    var quantity by remember { mutableIntStateOf(1) }
-    val selectedOptions = remember { mutableStateListOf<OptionItem>() }
-
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text(menuItem.menuName) },
-        text = {
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .heightIn(max = 400.dp)
-                    .verticalScroll(rememberScrollState()),
-                horizontalAlignment = Alignment.CenterHorizontally
-            ) {
-                Text("価格: ¥${menuItem.price}", style = MaterialTheme.typography.titleMedium)
-                Spacer(modifier = Modifier.height(16.dp))
-
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    IconButton(onClick = { if (quantity > 1) quantity-- }, modifier = Modifier.background(Color.LightGray, CircleShape)) {
-                        Text("-", style = MaterialTheme.typography.headlineSmall)
-                    }
-                    Text(quantity.toString(), style = MaterialTheme.typography.headlineMedium, modifier = Modifier.padding(horizontal = 24.dp))
-                    IconButton(onClick = { quantity++ }, modifier = Modifier.background(Color.LightGray, CircleShape)) {
-                        Icon(Icons.Default.Add, contentDescription = "Add")
-                    }
-                }
-
-                Spacer(modifier = Modifier.height(16.dp))
-                HorizontalDivider()
-                Text("オプション選択", style = MaterialTheme.typography.titleSmall, modifier = Modifier.padding(vertical = 8.dp))
-
-                allOptions.forEach { option ->
-                    val isSelected = selectedOptions.contains(option)
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clickable {
-                                if (isSelected) selectedOptions.remove(option)
-                                else selectedOptions.add(option)
-                            }
-                            .padding(vertical = 4.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Checkbox(
-                            checked = isSelected,
-                            onCheckedChange = null
-                        )
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text(option.optionName)
-                        Spacer(modifier = Modifier.weight(1f))
-                        if (option.price > 0) {
-                            Text("+¥${option.price}", color = Color.Gray, style = MaterialTheme.typography.bodySmall)
-                        }
-                    }
-                }
-            }
-        },
-        confirmButton = {
-            Button(onClick = {
-                onAddToCart(quantity, selectedOptions.toList())
-            }) {
-                Text("カートに入れる")
-            }
-        },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("キャンセル") } }
-    )
-}
-
-@Composable
-fun CartDialog(
-    cartItems: List<CartItem>,
-    onDismiss: () -> Unit,
-    onRemoveItem: (CartItem) -> Unit,
-    onSubmitOrder: () -> Unit
-) {
-    val total = cartItems.sumOf {
-        val itemPrice = it.menuItem.price + it.selectedOptions.sumOf { opt -> opt.price }
-        itemPrice * it.quantity
-    }
-
-    Dialog(onDismissRequest = onDismiss) {
-        Card(modifier = Modifier.fillMaxWidth().heightIn(max = 600.dp)) {
-            Column(modifier = Modifier.padding(16.dp)) {
-                Text("注文カート", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
-                Spacer(modifier = Modifier.height(16.dp))
-
-                if (cartItems.isEmpty()) {
-                    Box(modifier = Modifier.fillMaxWidth().height(100.dp), contentAlignment = Alignment.Center) {
-                        Text("カートは空です", color = Color.Gray)
-                    }
-                } else {
-                    LazyColumn(modifier = Modifier.weight(1f, fill = false)) {
-                        items(cartItems) { item ->
-                            val unitPrice = item.menuItem.price + item.selectedOptions.sumOf { it.price }
-
-                            Row(modifier = Modifier.fillMaxWidth().padding(8.dp), horizontalArrangement = Arrangement.SpaceBetween) {
-                                Column {
-                                    Text(item.menuItem.menuName, fontWeight = FontWeight.Bold)
-                                    if (item.selectedOptions.isNotEmpty()) {
-                                        val opts = item.selectedOptions.joinToString(", ") { it.optionName }
-                                        Text("+$opts", style = MaterialTheme.typography.bodySmall, color = Color.Gray)
-                                    }
-                                    Text("¥$unitPrice x ${item.quantity}")
-                                }
-                                IconButton(onClick = { onRemoveItem(item) }) { Icon(Icons.Default.Delete, null, tint = Color.Red) }
-                            }
-                            HorizontalDivider()
-                        }
-                    }
-                }
-                Spacer(modifier = Modifier.height(16.dp))
-                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                    Text("合計")
-                    Text("¥$total", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
-                }
-                Spacer(modifier = Modifier.height(24.dp))
-                if (cartItems.isNotEmpty()) {
-                    Button(onClick = onSubmitOrder, modifier = Modifier.fillMaxWidth()) { Text("注文を確定する") }
-                } else {
-                    Button(onClick = onDismiss, modifier = Modifier.fillMaxWidth(), colors = ButtonDefaults.buttonColors(Color.Gray)) { Text("閉じる") }
-                }
-            }
-        }
-    }
-}
-
-@Composable
-fun HistoryListDialog(history: AccountingResponse?, viewModel: OrderViewModel, onDismiss: () -> Unit) {
-    Dialog(onDismissRequest = onDismiss) {
-        Card(modifier = Modifier.fillMaxWidth().heightIn(max = 600.dp)) {
-            Column(modifier = Modifier.padding(16.dp)) {
-                Text("注文履歴", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
-                Spacer(modifier = Modifier.height(16.dp))
-                if (history?.details.isNullOrEmpty()) {
-                    Box(modifier = Modifier.fillMaxWidth().height(100.dp), contentAlignment = Alignment.Center) {
-                        Text("注文履歴はありません", color = Color.Gray)
-                    }
-                } else {
-                    LazyColumn(modifier = Modifier.weight(1f, fill = false)) {
-                        items(history!!.details!!) { detail ->
-                            Row(modifier = Modifier.fillMaxWidth().padding(8.dp), horizontalArrangement = Arrangement.SpaceBetween) {
-                                Column {
-                                    Text(viewModel.getMenuName(detail.menuId))
-                                    Text("状態: ${detail.itemStatus}", style = MaterialTheme.typography.bodySmall, color = Color.Gray)
-                                }
-                                Text("${detail.quantity}点")
-                            }
-                            HorizontalDivider()
-                        }
-                    }
-                }
-                Spacer(modifier = Modifier.height(16.dp))
-                Button(onClick = onDismiss, modifier = Modifier.fillMaxWidth()) { Text("閉じる") }
-            }
-        }
-    }
-}
-
-//@Composable
-//fun SplitBillDialog(
-//    orderHistory: AccountingResponse?,
-//    onDismiss: () -> Unit,
-//    onExecuteSplit: (List<Int>) -> Unit
-//) {
-//    // 選択された明細IDを管理
-//    val selectedDetailIds = remember { mutableStateListOf<Int>() }
-//
-//    AlertDialog(
-//        onDismissRequest = onDismiss,
-//        title = { Text("個別会計：支払う商品を選択") },
-//        text = {
-//            Column(
-//                modifier = Modifier
-//                    .fillMaxWidth()
-//                    .heightIn(max = 500.dp)
-//            ) {
-//                if (orderHistory?.details.isNullOrEmpty()) {
-//                    Box(modifier = Modifier.fillMaxWidth().height(100.dp), contentAlignment = Alignment.Center) {
-//                        Text("対象の商品がありません", color = Color.Gray)
-//                    }
-//                } else {
-//                    // まだ会計が終わっていない商品だけを表示
-//                    val activeDetails = orderHistory!!.details!!.filter {
-//                        it.itemStatus != "会計済" && it.itemStatus != "CANCELLED"
-//                    }
-//
-//                    if (activeDetails.isEmpty()) {
-//                        Box(modifier = Modifier.fillMaxWidth().height(100.dp), contentAlignment = Alignment.Center) {
-//                            Text("精算可能な商品がありません", color = Color.Gray)
-//                        }
-//                    } else {
-//                        LazyColumn {
-//                            items(activeDetails) { detail ->
-//                                val isSelected = selectedDetailIds.contains(detail.detailId)
-//
-//                                Row(
-//                                    modifier = Modifier
-//                                        .fillMaxWidth()
-//                                        .clickable {
-//                                            if (isSelected) selectedDetailIds.remove(detail.detailId)
-//                                            else selectedDetailIds.add(detail.detailId)
-//                                        }
-//                                        .padding(vertical = 8.dp),
-//                                    verticalAlignment = Alignment.CenterVertically
-//                                ) {
-//                                    Checkbox(
-//                                        checked = isSelected,
-//                                        onCheckedChange = { checked ->
-//                                            if (checked) selectedDetailIds.add(detail.detailId)
-//                                            else selectedDetailIds.remove(detail.detailId)
-//                                        }
-//                                    )
-//                                    Spacer(modifier = Modifier.width(8.dp))
-//                                    Column {
-//                                        // 商品名を表示したい場合はViewModel等で結合が必要ですが、一旦IDで表示
-////                                        Text("商品ID: ${detail.menuId}", fontWeight = FontWeight.Bold)
-//                                        Text(viewModel.getMenuName(detail.menuId), fontWeight = FontWeight.Bold)
-//                                        Text("¥${detail.subtotal} (数量:${detail.quantity})", style = MaterialTheme.typography.bodyMedium)
-//                                    }
-//                                }
-//                                HorizontalDivider() // Divider -> HorizontalDivider
-//                            }
-//                        }
-//                    }
-//                }
-//            }
-//        },
-//        confirmButton = {
-//            Button(
-//                onClick = { onExecuteSplit(selectedDetailIds.toList()) },
-//                enabled = selectedDetailIds.isNotEmpty()
-//            ) {
-//                Text("選択して会計")
-//            }
-//        },
-//        dismissButton = {
-//            TextButton(onClick = onDismiss) { Text("キャンセル") }
-//        }
-//    )
-//}
